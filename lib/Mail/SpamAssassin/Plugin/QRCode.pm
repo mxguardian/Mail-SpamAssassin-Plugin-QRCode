@@ -25,10 +25,11 @@ on these URI's.
 
   loadplugin Mail::SpamAssassin::Plugin::QRCode
 
-  qrcode_min_width 100
-  qrcode_max_width 0
+  qrcode_min_width  100
+  qrcode_max_width  0
   qrcode_min_height 100
   qrcode_max_height 0
+  qrcode_scan_pdf   0
 
   uri_detail      HAS_QRCODE_URI   type =~ /^qrcode$/
   describe        HAS_QRCODE_URI   Message contains a URI embedded in a QR code
@@ -52,6 +53,13 @@ Minimum height of the image in pixels. Images smaller than this will be skipped.
 =item qrcode_max_height (default: 0 (no limit))
 
 Maximum height of the image in pixels. Images larger than this will be skipped.
+
+=item qrcode_scan_pdf (default: 0)
+
+Scan PDF attachments for QR codes. If you enable this, make sure you have Ghostscript 9.24 or later installed
+because of a L<security vulnerability|https://www.kb.cert.org/vuls/id/332928/> in earlier versions. Also, you
+need to enable the policy in ImageMagick's policy.xml file to allow reading PDF files. See the
+L<documentation|https://imagemagick.org/script/security-policy.php> for details.
 
 =back
 
@@ -98,7 +106,7 @@ use Mail::SpamAssassin::Plugin;
 use Mail::SpamAssassin::Logger ();
 
 our @ISA = qw(Mail::SpamAssassin::Plugin);
-our $VERSION = 0.01;
+our $VERSION = 0.02;
 
 sub dbg { Mail::SpamAssassin::Logger::dbg ("QRCode: @_"); }
 sub info { Mail::SpamAssassin::Logger::info ("QRCode: @_"); }
@@ -111,8 +119,13 @@ sub new {
     my $self = $class->SUPER::new($mailsa);
     bless($self, $class);
 
+    # lower priority for add_uri_detail_list to work
+    $self->register_method_priority ("parsed_metadata", -1);
+
+    # set config
     $self->set_config($mailsa->{conf});
 
+    # initialize zbar
     $self->{zbar} = Barcode::ZBar::ImageScanner->new();
 
     return $self;
@@ -138,9 +151,51 @@ sub set_config {
         setting => 'qrcode_max_height',
         default => 0,
         type => $Mail::SpamAssassin::Conf::CONF_TYPE_NUMERIC,
+    },{
+        setting => 'qrcode_scan_pdf',
+        default => 0,
+        type => $Mail::SpamAssassin::Conf::CONF_TYPE_BOOL,
     });
 
     $conf->{parser}->register_commands(\@cmds);
+}
+
+sub finish_parsing_start {
+    my ($self, $opts) = @_;
+    my $conf = $opts->{conf};
+
+    if ($conf->{qrcode_scan_pdf}) {
+        $self->check_pdf_support();
+    }
+
+}
+
+sub check_pdf_support {
+
+    # Make sure ImageMagick is configured to read PDF files
+    my $image = Image::Magick->new();
+    my $error = $image->BlobToImage(<<'END');
+%PDF-1.0
+1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj 3 0 obj<</Type/Page/MediaBox[0 0 3 3]>>endobj
+xref
+0 4
+0000000000 65535 f
+0000000009 00000 n
+0000000052 00000 n
+0000000101 00000 n
+trailer<</Size 4/Root 1 0 R>>
+startxref
+147
+%EOF
+END
+    if ($error) {
+        if ( $error =~ /policy/ ) {
+            die "ImageMagick is not configured to read PDF files. Please enable the policy in ImageMagick's policy.xml file to allow reading PDF files. See the documentation for details.\n";
+        } else {
+            die $error;
+        }
+    }
+
 }
 
 sub parsed_metadata {
@@ -156,25 +211,47 @@ sub parsed_metadata {
     my $p;
 
     foreach $p ($msg->find_parts(qr/./, 1)) {
-        my $ct = $p->effective_type();
-        if ($ct =~ m@^image/@i) {
-            dbg("found image part");
+        my $mime_type = $p->effective_type();
+        if ($mime_type =~ m@^image/(.*)@i || $mime_type =~ m@^application/(pdf)@i) {
+            my $type = $1;
+            next if $type eq 'pdf' && !$conf->{qrcode_scan_pdf};
+            my $name = $p->{'name'} || "unknown $mime_type part";
+            dbg("found $type part: $name");
             my $raw = $p->decode();
+            next unless $raw;
 
-            # preprocessing
+            # load image
             my $magick = Image::Magick->new();
             my $error = $magick->BlobToImage($raw);
-            die $error if $error;
-            $magick->Set(dither => 'False');
-            $magick->Quantize(colors => 2);
-            $magick->Quantize(colorspace => 'gray');
-            $magick->ContrastStretch(levels => 0);
+            if ($error) {
+                # corrupt or unsupported image format
+                dbg("failed to decode $name: $error\n");
+                next;
+            }
+
+            # get image size
             my ($w, $h) = $magick->Get("width", "height");
+            unless ($w && $h) {
+                # can happen if the image is corrupt or truncated
+                dbg("failed to decode $name: width or height not defined\n");
+                next;
+            }
+            dbg("image size $w x $h");
             next if $conf->{qrcode_min_width} > 0 && $w < $conf->{qrcode_min_width};
             next if $conf->{qrcode_min_height} > 0 && $h < $conf->{qrcode_min_height};
             next if $conf->{qrcode_max_width} > 0 && $w > $conf->{qrcode_max_width};
             next if $conf->{qrcode_max_height} > 0 && $h > $conf->{qrcode_max_height};
-            dbg("image size $w x $h");
+
+            # get first frame from animated GIFs
+            if ( $mime_type eq 'image/gif' ) {
+                $magick = $magick->[0] if (scalar @{$magick} > 1);
+            }
+
+            # preprocessing
+            $magick->Set(dither => 'False');
+            $magick->Quantize(colors => 2);
+            $magick->Quantize(colorspace => 'gray');
+            $magick->ContrastStretch(levels => 0);
             $raw = $magick->ImageToBlob(magick => 'GRAY', depth => 8);
 
             # scan

@@ -12,10 +12,11 @@ on these URI's.
 
     loadplugin Mail::SpamAssassin::Plugin::QRCode
 
-    qrcode_min_width 100
-    qrcode_max_width 0
+    qrcode_min_width  100
+    qrcode_max_width  0
     qrcode_min_height 100
     qrcode_max_height 0
+    qrcode_scan_pdf   0
 
     uri_detail      HAS_QRCODE_URI   type =~ /^qrcode$/
     describe        HAS_QRCODE_URI   Message contains a URI embedded in a QR code
@@ -37,6 +38,13 @@ on these URI's.
 - qrcode\_max\_height (default: 0 (no limit))
 
     Maximum height of the image in pixels. Images larger than this will be skipped.
+
+- qrcode\_scan\_pdf (default: 0)
+
+    Scan PDF attachments for QR codes. If you enable this, make sure you have Ghostscript 9.24 or later installed
+    because of a [security vulnerability](https://www.kb.cert.org/vuls/id/332928/) in earlier versions. Also, you
+    need to enable the policy in ImageMagick's policy.xml file to allow reading PDF files. See the
+    [documentation](https://imagemagick.org/script/security-policy.php) for details.
 
 # REQUIREMENTS
 

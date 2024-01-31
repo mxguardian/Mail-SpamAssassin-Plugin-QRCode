@@ -15,8 +15,10 @@ my $spamassassin = Mail::SpamAssassin->new(
         use_dcc            => 0,
         use_auto_whitelist => 0,
         debug              => '0',
-        pre_config_text        => <<'EOF'
+        post_config_text        => <<'EOF'
             loadplugin Mail::SpamAssassin::Plugin::QRCode
+
+            qrcode_scan_pdf 0
 
             uri     QRCODE_URI     /p1001\.syd1\.digitaloceanspaces\.com/
 
