@@ -12,11 +12,13 @@ on these URI's.
 
     loadplugin Mail::SpamAssassin::Plugin::QRCode
 
-    qrcode_min_width  100
-    qrcode_max_width  0
-    qrcode_min_height 100
-    qrcode_max_height 0
-    qrcode_scan_pdf   0
+    ifplugin Mail::SpamAssassin::Plugin::QRCode
+      qr_code_min_width     100
+      qr_code_max_width     0
+      qr_code_min_height    100
+      qr_code_max_height    0
+      qr_code_scan_pdf      0
+    endif
 
     uri_detail      HAS_QRCODE_URI   type =~ /^qrcode$/
     describe        HAS_QRCODE_URI   Message contains a URI embedded in a QR code

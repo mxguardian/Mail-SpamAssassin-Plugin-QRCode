@@ -25,11 +25,13 @@ on these URI's.
 
   loadplugin Mail::SpamAssassin::Plugin::QRCode
 
-  qrcode_min_width  100
-  qrcode_max_width  0
-  qrcode_min_height 100
-  qrcode_max_height 0
-  qrcode_scan_pdf   0
+  ifplugin Mail::SpamAssassin::Plugin::QRCode
+    qr_code_min_width     100
+    qr_code_max_width     0
+    qr_code_min_height    100
+    qr_code_max_height    0
+    qr_code_scan_pdf      0
+  endif
 
   uri_detail      HAS_QRCODE_URI   type =~ /^qrcode$/
   describe        HAS_QRCODE_URI   Message contains a URI embedded in a QR code
@@ -106,10 +108,11 @@ use Mail::SpamAssassin::Plugin;
 use Mail::SpamAssassin::Logger ();
 
 our @ISA = qw(Mail::SpamAssassin::Plugin);
-our $VERSION = 0.02;
+our $VERSION = 0.03;
 
 sub dbg { Mail::SpamAssassin::Logger::dbg ("QRCode: @_"); }
 sub info { Mail::SpamAssassin::Logger::info ("QRCode: @_"); }
+sub warning { warn("QRCode: $_[0]"); }
 
 sub new {
     my $class = shift;
@@ -165,7 +168,7 @@ sub finish_parsing_start {
     my $conf = $opts->{conf};
 
     if ($conf->{qrcode_scan_pdf}) {
-        $self->check_pdf_support();
+        $conf->{qrcode_scan_pdf} = 0 unless $self->check_pdf_support();
     }
 
 }
@@ -190,12 +193,14 @@ startxref
 END
     if ($error) {
         if ( $error =~ /policy/ ) {
-            die "ImageMagick is not configured to read PDF files. Please enable the policy in ImageMagick's policy.xml file to allow reading PDF files. See the documentation for details.\n";
+            warning("ImageMagick is not configured to read PDF files. Please enable the policy in ImageMagick's policy.xml file to allow reading PDF files. See the documentation for details.\n");
+            return 0;
         } else {
             die $error;
         }
     }
 
+    return 1;
 }
 
 sub parsed_metadata {
@@ -243,8 +248,10 @@ sub parsed_metadata {
             next if $conf->{qrcode_max_height} > 0 && $h > $conf->{qrcode_max_height};
 
             # get first frame from animated GIFs
-            if ( $mime_type eq 'image/gif' ) {
-                $magick = $magick->[0] if (scalar @{$magick} > 1);
+            if ( $type eq 'gif' ) {
+                # This should work, but it causes a segfault in ImageMagick 6.9.11-60
+                # Need to investigate further
+                # $magick = $magick->[0] if (scalar @{$magick} > 1);
             }
 
             # preprocessing

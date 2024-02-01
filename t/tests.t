@@ -29,10 +29,16 @@ EOF
 
 my @files = (
     {
+        # QR code in JPEG
         'name'       => 't/data/msg1.eml',
         'hits'       => {
             'QRCODE_URI' => 1,
         },
+    },
+    {
+        # animated GIF (no QR code)
+        'name'       => 't/data/msg2.eml',
+        'hits'       => {},
     },
 );
 
