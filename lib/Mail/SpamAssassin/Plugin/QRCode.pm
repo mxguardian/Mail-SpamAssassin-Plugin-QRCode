@@ -108,7 +108,7 @@ use Mail::SpamAssassin::Plugin;
 use Mail::SpamAssassin::Logger ();
 
 our @ISA = qw(Mail::SpamAssassin::Plugin);
-our $VERSION = 0.03;
+our $VERSION = 0.04;
 
 sub dbg { Mail::SpamAssassin::Logger::dbg ("QRCode: @_"); }
 sub info { Mail::SpamAssassin::Logger::info ("QRCode: @_"); }
@@ -249,9 +249,7 @@ sub parsed_metadata {
 
             # get first frame from animated GIFs
             if ( $type eq 'gif' ) {
-                # This should work, but it causes a segfault in ImageMagick 6.9.11-60
-                # Need to investigate further
-                # $magick = $magick->[0] if (scalar @{$magick} > 1);
+                @$magick = ($magick->[0]) if (scalar @{$magick} > 1);
             }
 
             # preprocessing
@@ -260,6 +258,9 @@ sub parsed_metadata {
             $magick->Quantize(colorspace => 'gray');
             $magick->ContrastStretch(levels => 0);
             $raw = $magick->ImageToBlob(magick => 'GRAY', depth => 8);
+
+            # free up resources
+            undef $magick;
 
             # scan
             my $image = Barcode::ZBar::Image->new();
